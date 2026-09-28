@@ -12,7 +12,16 @@
   <div class="layout">
     <nav aria-label="주 메뉴"><a {% if not task_menu and not execution_menu and not review_menu %}class="active" aria-current="page"{% endif %} href="{{ url_for('index') }}">계획</a><a {% if task_menu %}class="active" aria-current="page"{% endif %} href="{{ url_for('task_list') }}">할 일</a><a {% if execution_menu %}class="active" aria-current="page"{% endif %} href="{{ url_for('execution_list') }}">실행 기록</a><a {% if review_menu %}class="active" aria-current="page"{% endif %} href="{{ url_for('review_page') }}">돌아보기</a></nav>
     <main id="main">
-      <aside class="notice" aria-label="공개 안내"><strong>공개 안내</strong><p>지금은 로그인이 없어 링크를 아는 사람은 누구나 볼 수 있습니다.<br>남이 봐도 괜찮은 내용만 넣으세요.</p></aside>
+      {% if current_user %}
+      <aside class="notice"><strong>{{ current_user.username }}님의 다이어리</strong>
+        <a href="{{ url_for('change_password') }}">비밀번호 변경</a>
+        <a href="{{ url_for('delete_account') }}">계정 삭제</a>
+        <form method="post" action="{{ url_for('logout') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button type="submit" class="secondary">로그아웃</button>
+        </form>
+      </aside>
+      {% endif %}
       {% block body %}{% endblock %}
       <footer><p>플랜두씨 다이어리 · 표시 시각 기준: Asia/Seoul (한국 시간)</p><div class="form-actions"><a class="button secondary" href="{{ url_for('export_all') }}">전체 자료 내보내기</a></div></footer>
     </main>

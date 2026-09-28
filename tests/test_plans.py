@@ -10,10 +10,11 @@ import time
 import unittest
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import urlopen
+from urllib.request import urlopen as raw_urlopen, Request
 from uuid import uuid4
 
 from app import ROOT, create_app
+from auth_support import authenticated_client
 
 
 class PlanTests(unittest.TestCase):
@@ -21,7 +22,7 @@ class PlanTests(unittest.TestCase):
         self.path = ROOT / 'instance' / 'tests' / f'{uuid4()}.sqlite3'
         self.app = create_app(self.path)
         self.app.config['TESTING'] = True
-        self.client = self.app.test_client()
+        self.client = authenticated_client(self.app)
         self.data = dict(title='[자동 검증 전용] 최초 계획', content='테스트 내용', start_date='2026-09-16',
                          end_date='2026-09-17', priority='high', success_criteria='검증 전용', estimated_minutes='30')
 
@@ -46,7 +47,7 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(original['estimated_minutes'], 30)
         self.assertEqual(len(self.rows('plan_versions')), 1)
         first_page = self.client.get(url).data
-        self.assertEqual(first_page, self.app.test_client().get(url).data)
+        self.assertEqual(first_page, authenticated_client(self.app).get(url).data)
         self.assertEqual(original, self.rows('plans')[0])
         self.assertIn(original['id'].encode(), first_page)
         changed = dict(self.data, title='[자동 검증 전용] 수정 계획', estimated_minutes='45', version='1')
@@ -104,7 +105,7 @@ class PlanTests(unittest.TestCase):
 
     def test_timezone_and_contract(self):
         self.assertEqual(self.app.jinja_env.filters['seoul']('2026-09-16T18:30:00.000000Z'), '2026-09-17 03:30:00')
-        contract = json.loads((ROOT / 'contracts/pds-schema-v2.json').read_text(encoding='utf-8'))
+        contract = json.loads((ROOT / 'contracts/pds-schema-v4.json').read_text(encoding='utf-8'))
         with closing(sqlite3.connect(self.path)) as db:
             for table, spec in contract['tables'].items():
                 actual = {row[1]: row[2] for row in db.execute('PRAGMA table_info(' + table + ')')}
@@ -115,6 +116,15 @@ class PlanTests(unittest.TestCase):
             sock.bind(('127.0.0.1', 0))
             port = sock.getsockname()[1]
         base = f'http://127.0.0.1:{port}'
+        from auth_support import csrf
+        from auth import COOKIE
+        token = csrf(self.client)
+        cookie = self.client.get_cookie(COOKIE).value
+        def urlopen(url, data=None, timeout=5):
+            if data is not None:
+                data += ('&csrf_token=' + token).encode()
+            return raw_urlopen(Request(url, data=data, headers={'Cookie': COOKIE + '=' + cookie}), timeout=timeout)
+
         env = dict(os.environ, PDS_DB_PATH=str(self.path), PDS_PORT=str(port))
 
         def start():

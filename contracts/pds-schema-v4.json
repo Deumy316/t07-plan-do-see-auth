@@ -1,0 +1,1022 @@
+{
+  "schema_version": "4",
+  "implementation_stage": "daily-review-and-rule-history",
+  "database": "SQLite",
+  "source_ddl": "schema.sql",
+  "database_path": {
+    "environment": "PDS_DB_PATH",
+    "default": "instance/pds.sqlite3",
+    "relative_base": "project root"
+  },
+  "rules": {
+    "date_format": "YYYY-MM-DD",
+    "date_validation": "Required real Gregorian dates for plans, years 0001-9999; end_date >= start_date; both boundaries included. Task due_date is optional, blank stored as NULL; otherwise same YYYY-MM-DD real date validation. No plan-period restriction on due date.",
+    "timestamp_storage": "UTC ISO 8601 with microseconds and Z suffix",
+    "timestamp_display_timezone": "Asia/Seoul",
+    "date_timezone": "Asia/Seoul; date-only values are not converted to UTC",
+    "estimated_time_unit": "integer minutes",
+    "estimated_time_range": [
+      0,
+      9007199254740991
+    ],
+    "priority_values": {
+      "high": "높음",
+      "medium": "보통",
+      "low": "낮음"
+    },
+    "text": "Trim surrounding whitespace on submission. Title must not be empty. Content and success criteria may be empty strings. HTML is escaped when displayed.",
+    "request_size_limit_bytes": 1048576,
+    "creation": "UUID v4 id, version 1, equal created_at and updated_at; current row and first snapshot inserted in one transaction.",
+    "update": "Same id and created_at; increment version, replace editable fields, update updated_at, insert full snapshot in one transaction. On history failure rollback current row. Stale submitted version returns HTTP 409 without changes.",
+    "history": "Append-only through application; initial and every successful edited snapshot retained, including unchanged submissions. No history edit/delete route.",
+    "deletion": "Plans have no delete route. Tasks use deleted_at soft deletion; all task lists, tag options and counts exclude deleted rows. Completion audit events are retained, and any future event aggregation must join tasks and exclude deleted_at IS NOT NULL.",
+    "defaults": "No DB column defaults; application supplies every value. New form priority defaults to medium and estimated_minutes to 0.",
+    "future_features": "Import and public deployment are not implemented."
+  },
+  "tables": {
+    "plans": {
+      "description": "Current plan values",
+      "primary_key": [
+        "id"
+      ],
+      "fields": {
+        "id": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "UUID v4"
+        },
+        "title": {
+          "type": "TEXT",
+          "nullable": false,
+          "check": "length(trim(title)) > 0"
+        },
+        "content": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "start_date": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "date"
+        },
+        "end_date": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "date",
+          "check": "end_date >= start_date"
+        },
+        "priority": {
+          "type": "TEXT",
+          "nullable": false,
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "success_criteria": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "estimated_minutes": {
+          "type": "INTEGER",
+          "nullable": false,
+          "check": "typeof(value) = integer AND 0 <= value <= 9007199254740991"
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "utc_timestamp",
+          "meaning": "Original plan creation time"
+        },
+        "updated_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "utc_timestamp",
+          "meaning": "Current version save time"
+        },
+        "version": {
+          "type": "INTEGER",
+          "nullable": false,
+          "check": "version >= 1"
+        },
+        "owner_id": {
+          "type": "TEXT",
+          "nullable": true,
+          "description": "과제 7 소유 계정 users.id. NULL은 미배정 격리 자료."
+        }
+      }
+    },
+    "plan_versions": {
+      "description": "Full snapshot for each plan version",
+      "primary_key": [
+        "plan_id",
+        "version"
+      ],
+      "foreign_keys": [
+        {
+          "fields": [
+            "plan_id"
+          ],
+          "references": "plans",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ],
+      "fields": {
+        "plan_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "UUID v4"
+        },
+        "version": {
+          "type": "INTEGER",
+          "nullable": false,
+          "check": "version >= 1"
+        },
+        "title": {
+          "type": "TEXT",
+          "nullable": false,
+          "check": "length(trim(title)) > 0"
+        },
+        "content": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "start_date": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "date"
+        },
+        "end_date": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "date",
+          "check": "end_date >= start_date"
+        },
+        "priority": {
+          "type": "TEXT",
+          "nullable": false,
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "success_criteria": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "estimated_minutes": {
+          "type": "INTEGER",
+          "nullable": false,
+          "check": "typeof(value) = integer AND 0 <= value <= 9007199254740991"
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "utc_timestamp",
+          "meaning": "Original plan creation time, preserved across versions"
+        },
+        "updated_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "format": "utc_timestamp",
+          "meaning": "Snapshot save time"
+        }
+      }
+    },
+    "tasks": {
+      "description": "Current tasks with soft deletion",
+      "primary_key": [
+        "id"
+      ],
+      "fields": {
+        "id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "plan_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "title": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "content": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "due_date": {
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "format": "date"
+        },
+        "priority": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "estimated_minutes": {
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null,
+          "unit": "integer minutes"
+        },
+        "status": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "enum": [
+            "active",
+            "completed"
+          ]
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        },
+        "updated_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        },
+        "completed_at": {
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "format": "utc_timestamp"
+        },
+        "deleted_at": {
+          "type": "TEXT",
+          "nullable": true,
+          "default": null,
+          "format": "utc_timestamp"
+        },
+        "version": {
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null
+        }
+      },
+      "foreign_keys": [
+        {
+          "fields": [
+            "plan_id"
+          ],
+          "references": "plans",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ],
+      "ddl_with_constraints": "CREATE TABLE tasks (\n    id TEXT PRIMARY KEY NOT NULL,\n    plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,\n    title TEXT NOT NULL CHECK(length(trim(title)) > 0),\n    content TEXT NOT NULL,\n    due_date TEXT,\n    priority TEXT NOT NULL CHECK(priority IN ('high', 'medium', 'low')),\n    estimated_minutes INTEGER NOT NULL CHECK(typeof(estimated_minutes) = 'integer' AND estimated_minutes BETWEEN 0 AND 9007199254740991),\n    status TEXT NOT NULL CHECK(status IN ('active', 'completed')),\n    created_at TEXT NOT NULL,\n    updated_at TEXT NOT NULL,\n    completed_at TEXT,\n    deleted_at TEXT,\n    version INTEGER NOT NULL CHECK(version >= 1),\n    CHECK((status = 'active' AND completed_at IS NULL) OR (status = 'completed' AND completed_at IS NOT NULL))\n)"
+    },
+    "task_tags": {
+      "description": "Normalized task tags",
+      "primary_key": [
+        "task_id",
+        "tag"
+      ],
+      "fields": {
+        "task_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "tag": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        }
+      },
+      "foreign_keys": [
+        {
+          "fields": [
+            "task_id"
+          ],
+          "references": "tasks",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ],
+      "ddl_with_constraints": "CREATE TABLE task_tags (\n    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,\n    tag TEXT NOT NULL CHECK(length(trim(tag)) > 0),\n    PRIMARY KEY(task_id, tag)\n)"
+    },
+    "task_state_requests": {
+      "description": "Successful state request receipts, including no-op and undo",
+      "primary_key": [
+        "request_id"
+      ],
+      "fields": {
+        "request_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "task_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "target_status": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "enum": [
+            "active",
+            "completed"
+          ]
+        },
+        "expected_version": {
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null
+        },
+        "result_version": {
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null
+        },
+        "changed": {
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        }
+      },
+      "foreign_keys": [
+        {
+          "fields": [
+            "task_id"
+          ],
+          "references": "tasks",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ],
+      "ddl_with_constraints": "CREATE TABLE task_state_requests (\n    request_id TEXT PRIMARY KEY NOT NULL,\n    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,\n    target_status TEXT NOT NULL CHECK(target_status IN ('active', 'completed')),\n    expected_version INTEGER NOT NULL CHECK(expected_version >= 1),\n    result_version INTEGER NOT NULL CHECK(result_version >= 1),\n    changed INTEGER NOT NULL CHECK(changed IN (0, 1)),\n    created_at TEXT NOT NULL\n)"
+    },
+    "task_completion_events": {
+      "description": "Immutable completion transition events",
+      "primary_key": [
+        "id"
+      ],
+      "fields": {
+        "id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "task_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "request_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "task_version": {
+          "type": "INTEGER",
+          "nullable": false,
+          "default": null
+        },
+        "completed_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        }
+      },
+      "foreign_keys": [
+        {
+          "fields": [
+            "request_id"
+          ],
+          "references": "task_state_requests",
+          "reference_fields": [
+            "request_id"
+          ],
+          "on_delete": "RESTRICT"
+        },
+        {
+          "fields": [
+            "task_id"
+          ],
+          "references": "tasks",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ],
+      "ddl_with_constraints": "CREATE TABLE task_completion_events (\n    id TEXT PRIMARY KEY NOT NULL,\n    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,\n    request_id TEXT NOT NULL UNIQUE REFERENCES task_state_requests(request_id) ON DELETE RESTRICT,\n    task_version INTEGER NOT NULL CHECK(task_version >= 1),\n    completed_at TEXT NOT NULL,\n    UNIQUE(task_id, task_version)\n)"
+    },
+    "execution_records": {
+      "description": "User-entered execution records with explicit editing and stable ID/creation metadata",
+      "primary_key": [
+        "id"
+      ],
+      "unique": [
+        [
+          "request_id"
+        ]
+      ],
+      "fields": {
+        "id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "task_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "request_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "started_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        },
+        "ended_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        },
+        "actual_minutes": {
+          "type": "REAL",
+          "nullable": false,
+          "default": null,
+          "unit": "minutes, rounded half-up to two decimal places"
+        },
+        "content": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "blocked_reason": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        }
+      },
+      "foreign_keys": [
+        {
+          "fields": [
+            "task_id"
+          ],
+          "references": "tasks",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ],
+      "ddl_with_constraints": "CREATE TABLE execution_records (\n    id TEXT PRIMARY KEY NOT NULL,\n    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE RESTRICT,\n    request_id TEXT NOT NULL UNIQUE,\n    started_at TEXT NOT NULL,\n    ended_at TEXT NOT NULL CHECK(ended_at >= started_at),\n    actual_minutes REAL NOT NULL CHECK(actual_minutes >= 0),\n    content TEXT NOT NULL CHECK(length(trim(content)) > 0),\n    blocked_reason TEXT NOT NULL,\n    created_at TEXT NOT NULL\n)"
+    },
+    "review_improvements": {
+      "fields": {
+        "id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "plan_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "content": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        }
+      },
+      "primary_key": [
+        "id"
+      ],
+      "ddl_with_constraints": "CREATE TABLE review_improvements (\n    id TEXT PRIMARY KEY NOT NULL,\n    plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,\n    content TEXT NOT NULL CHECK(length(trim(content)) > 0),\n    created_at TEXT NOT NULL,\n    UNIQUE(id, plan_id)\n)",
+      "foreign_keys": [
+        {
+          "fields": [
+            "plan_id"
+          ],
+          "references": "plans",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ]
+    },
+    "next_plan_links": {
+      "fields": {
+        "next_plan_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "previous_plan_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "improvement_id": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false,
+          "default": null,
+          "format": "utc_timestamp"
+        }
+      },
+      "primary_key": [
+        "next_plan_id"
+      ],
+      "ddl_with_constraints": "CREATE TABLE next_plan_links (\n    next_plan_id TEXT PRIMARY KEY NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,\n    previous_plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,\n    improvement_id TEXT NOT NULL,\n    created_at TEXT NOT NULL,\n    FOREIGN KEY(improvement_id, previous_plan_id) REFERENCES review_improvements(id, plan_id) ON DELETE RESTRICT,\n    CHECK(next_plan_id <> previous_plan_id)\n)",
+      "foreign_keys": [
+        {
+          "fields": [
+            "next_plan_id"
+          ],
+          "references": "plans",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        },
+        {
+          "fields": [
+            "previous_plan_id"
+          ],
+          "references": "plans",
+          "reference_fields": [
+            "id"
+          ],
+          "on_delete": "RESTRICT"
+        },
+        {
+          "fields": [
+            "improvement_id",
+            "previous_plan_id"
+          ],
+          "references": "review_improvements",
+          "reference_fields": [
+            "id",
+            "plan_id"
+          ],
+          "on_delete": "RESTRICT"
+        }
+      ]
+    },
+    "users": {
+      "fields": {
+        "id": {
+          "type": "TEXT"
+        },
+        "username": {
+          "type": "TEXT"
+        },
+        "password_hash": {
+          "type": "TEXT"
+        },
+        "created_at": {
+          "type": "INTEGER"
+        }
+      }
+    },
+    "auth_sessions": {
+      "fields": {
+        "token_hash": {
+          "type": "TEXT"
+        },
+        "user_id": {
+          "type": "TEXT"
+        },
+        "created_at": {
+          "type": "INTEGER"
+        },
+        "expires_at": {
+          "type": "INTEGER"
+        }
+      }
+    },
+    "review_rule_changes": {
+      "fields": {
+        "id": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "plan_id": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "before_rule": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "after_rule": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "reason": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "day1": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "day2": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "created_at": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "next_work_started_at": {
+          "type": "TEXT",
+          "nullable": true
+        },
+        "confirmed_complete": {
+          "type": "INTEGER",
+          "nullable": false
+        }
+      }
+    },
+    "review_rule_evidence": {
+      "fields": {
+        "change_id": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "day": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "record_id": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "task_id": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "started_at": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "ended_at": {
+          "type": "TEXT",
+          "nullable": false
+        },
+        "record_created_at": {
+          "type": "TEXT",
+          "nullable": false
+        }
+      }
+    }
+  },
+  "relationships": [
+    {
+      "from": "plans.id",
+      "to": "plan_versions.plan_id",
+      "cardinality": "one-to-many",
+      "invariant": "Current plan version equals highest snapshot version; current fields equal that snapshot."
+    },
+    {
+      "from": "plans.id",
+      "to": "tasks.plan_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "tasks.id",
+      "to": "task_tags.task_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "tasks.id",
+      "to": "task_state_requests.task_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "tasks.id",
+      "to": "task_completion_events.task_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "task_state_requests.request_id",
+      "to": "task_completion_events.request_id",
+      "cardinality": "one-to-zero-or-one"
+    },
+    {
+      "from": "tasks.id",
+      "to": "execution_records.task_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "plans.id",
+      "to": "review_improvements.plan_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "review_improvements.id",
+      "to": "next_plan_links.improvement_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "plans.id",
+      "to": "next_plan_links.previous_plan_id",
+      "cardinality": "one-to-many"
+    },
+    {
+      "from": "plans.id",
+      "to": "next_plan_links.next_plan_id",
+      "cardinality": "one-to-zero-or-one"
+    }
+  ],
+  "validation_location": {
+    "server": "Real date parsing, strict date format, integer parsing, required title, priority enum, submitted version",
+    "database": "NOT NULL, primary/foreign keys, title, date ordering, priority enum, integer time range, positive version"
+  },
+  "task_rules": {
+    "status_values": {
+      "active": "In progress",
+      "completed": "Completed"
+    },
+    "create": "UUID v4; active; version 1; completed_at and deleted_at NULL; equal created_at and updated_at. Tags stored in same transaction.",
+    "edit": "Stable id, plan_id, created_at, status and completed_at. Require current version, increment version, update updated_at and replace tags in one transaction. Stale version HTTP 409.",
+    "tags": "Comma-separated input, trim each item, discard empty items, deduplicate case-sensitively; composite primary key task_id/tag; display sorted by SQLite BINARY order.",
+    "time_unit": "estimated_minutes: integer minutes, 0..9007199254740991; all timestamps UTC ISO 8601 with microseconds and Z; display Asia/Seoul.",
+    "delete": "GET shows confirmation only. POST requires confirm=yes and current version. Set deleted_at/updated_at and increment version; never physically delete task, tags, requests or events.",
+    "counts": "Task list result count excludes deleted tasks. Review counts current target tasks; completed count uses current status, never event count. See review_rules.",
+    "search": "Literal substring in title OR content, combined with all filters via AND. SQLite lower(): ASCII case-insensitive; other Unicode case behavior unchanged.",
+    "filters": "Required selected plan; optional status, priority and exact case-sensitive tag.",
+    "sorts": {
+      "due_default": "due_date IS NULL ASC, due_date ASC, id ASC",
+      "priority": "high then medium then low, id ASC",
+      "newest": "created_at DESC, id ASC"
+    },
+    "state_requests": {
+      "endpoint": "POST /tasks/<id>/state with target_status, version, request_id (canonical lowercase UUID)",
+      "transaction": "BEGIN IMMEDIATE serializes writers. Check request_id first; validate task/version; explicitly set target status; insert request result and optional completion event; commit together. Any error rolls back all writes.",
+      "retry": "Reuse original request_id, task_id, target_status and expected version. Already successful request returns HTTP 303 to current list without changing state or inserting another event, including after cancellation or deletion. Reuse of a key with different payload returns 409.",
+      "stale": "A new request_id with an old version returns 409 and has no effect. Two different keys submitted simultaneously at the same version produce at most one transition; remaining stale requests fail.",
+      "same_state": "Current version with target equal to current status records a no-op request (changed=0), without changing timestamps/version or adding completion event.",
+      "recompletion": "Cancel explicitly with target_status=active, new request_id and current version. completed_at becomes NULL and version increments. Then complete with a new request_id and latest version: one new completion event is allowed.",
+      "db_guards": "task_state_requests.request_id PRIMARY KEY; task_completion_events.request_id UNIQUE; UNIQUE(task_id, task_version); foreign keys and status/completed_at CHECK.",
+      "event_meaning": "One event for each active-to-completed transition only. Undo retained in task_state_requests. Event timestamp is not an execution start/end or measured duration."
+    },
+    "migration": "Additive CREATE TABLE/INDEX IF NOT EXISTS at startup; no DROP, data seeding, or changes to existing plans/plan_versions."
+  },
+  "execution_rules": {
+    "input": "Select existing plan and its nondeleted task, active or completed. Required content; optional blocked_reason stored as empty string. Text trimmed. No prefilled actual times or sample records.",
+    "local_format": "YYYY-MM-DDTHH:mm or YYYY-MM-DDTHH:mm:ss, no offset or fractional seconds. Interpret in Asia/Seoul, not browser timezone. Reject invalid dates and historically ambiguous/nonexistent local times.",
+    "storage": "started_at, ended_at and created_at UTC ISO 8601 with microseconds and Z suffix. Display Asia/Seoul.",
+    "calculation": "Server computes integer elapsed seconds from UTC ended_at - started_at. Negative duration rejected; equal times allowed. actual_minutes = ((seconds * 100 + 30) // 60) / 100, half-up rounding to 2 decimal minutes. No client duration is trusted. Start/end retain full second precision; no intermediate rounding.",
+    "relationship": "One task to many execution records. Records may be edited and reassigned to any nondeleted task, including completed tasks and other plans. Execution deletion is not implemented.",
+    "idempotency": "Form GET generates canonical UUID request_id. Repeated submissions of same form reuse it. BEGIN IMMEDIATE plus UNIQUE(request_id) protects concurrent inserts. Same key with normalized task_id/start/end/content/blocked_reason returns 303 with no insert. Different payload using that key returns 409. New intentional entry uses new form/request_id. Validation errors retain the key. After editing, an original creation retry with payload differing from the current record returns 409 without reverting edits or inserting duplicates. Edit requests only update the existing row.",
+    "preservation": "Explicit edits affect only the chosen execution record. Plans, history, tasks, estimates, completion state/events and unrelated records stay unchanged. Review/export reflect current values on next read.",
+    "listing": "Selected plan only, task title joined from current tasks; started_at DESC then id ASC. Soft-deleted tasks are excluded from list but stored records remain. New records for deleted tasks rejected; identical successful retries remain no-op.",
+    "migration": "Add execution_records and index with CREATE IF NOT EXISTS only; no existing data modified or seeded.",
+    "future_validation": "Create and edit require started_at <= ended_at <= server_now() in UTC. Exact equality to server current time is allowed. Invalid input writes nothing. Existing future records are not automatically modified.",
+    "editing": "GET/POST /executions/<record_id>/edit displays Korean timestamps and validates task/content/time inputs. Transaction updates task_id, started_at, ended_at, actual_minutes, content, blocked_reason. ID, request_id and created_at stay unchanged. Duration is recomputed with existing rounding rule. No edit history or schema changes."
+  },
+  "review_rules": {
+    "endpoint": "GET /review?plan_id=<id>; defaults to first plan; unknown nonempty ID returns 404; no plans or no tasks produces seven zero metrics.",
+    "storage": "GET aggregation is read-only with no cached counters. POST saves user-entered improvements to review_improvements; next_plan_links are created only when a subsequent plan is explicitly saved.",
+    "scope": "All current nondeleted tasks of selected plan, without period filtering; all execution_records attached to those tasks. Deleted task records and other plans excluded.",
+    "snapshot": "BEGIN read transaction loads plans, tasks and records in one SQLite snapshot. Totals and evidence are computed from the same loaded collections and rendered in one response. Reload recomputes current values.",
+    "today": "Capture server datetime.now(ZoneInfo(Asia/Seoul)).date() once per request; show YYYY-MM-DD and timezone on page. No browser/UTC-date dependency.",
+    "metrics": {
+      "planned": "Label: planned tasks, not number of plans; count each target task once.",
+      "completed": "Count target tasks whose current status is completed; never count historical completion events.",
+      "overdue": "Count target tasks with status active AND due_date not NULL AND due_date < Korean today. Today, future and missing deadlines excluded.",
+      "blocked": "Count distinct target task IDs with at least one execution record where Python str.strip(blocked_reason) is nonempty, including Unicode whitespace trimming. Completed tasks may also be blocked.",
+      "estimated": "Sum current estimated_minutes once per target task, independently of record joins; not plans.estimated_minutes.",
+      "actual": "Sum stored actual_minutes over all target execution records; Decimal(str(value)) with precision 50 avoids binary float sum artifacts. Already-rounded record minutes are summed, not recalculated or rounded per task.",
+      "difference": "actual - estimated in minutes; may be negative."
+    },
+    "evidence": {
+      "planned_completed_overdue": "Matching tasks with title, status, deadline, expected minutes, content and stable ID.",
+      "blocked": "Distinct matching tasks plus every nonblank blocked-reason record establishing membership.",
+      "estimated": "All target tasks and their expected minutes.",
+      "actual": "All target records with task title/ID, record ID, Korean start/end, actual minutes, content and blocked reason.",
+      "difference": "Both estimated task evidence and actual record evidence, plus arithmetic expression."
+    },
+    "ui": "Seven keyboard-operable native details/summary cards; clicking numbers expands evidence without a new snapshot. Units: counts and minutes. Empty evidence explicitly shown. Existing escaped templates and dark theme retained.",
+    "ordering": "Task evidence: due_date IS NULL, due_date ASC, id ASC. Record evidence: started_at DESC, id ASC.",
+    "overlap": "Completed, overdue and blocked are independent predicates; blocked can overlap completed or overdue. These are not disjoint categories."
+  },
+  "improvement_rules": {
+    "save": "POST /review requires existing plan_id and nonblank improvement_content; strip surrounding whitespace. Append a new UUID record with UTC created_at. No automatic/sample content. GET refresh never writes.",
+    "prefill": "GET /plans/new?source_improvement=<id> opens existing form, with only content copied. Title, period, success criteria remain blank; existing defaults medium priority and 0 minutes remain for user confirmation. GET does not create a plan or link.",
+    "commit": "POST /plans/new carries hidden source_improvement. Server resolves previous plan from stored improvement. User can edit the prefilled content; normal validation applies. New plan, version 1 snapshot and next_plan_links are written in one transaction. Failure rolls back all three.",
+    "relationship": "One previous plan can have multiple immutable improvements. One improvement can lead to multiple next plans via separately saved forms. Each next plan has at most one origin link. Composite FK enforces improvement belongs to previous_plan_id, and self-links are prohibited.",
+    "navigation": "Previous plan review lists each saved improvement and its linked next plans, linking to current plan detail by stable ID. Subsequent plan edits do not change the origin link or original improvement.",
+    "preservation": "No modification of previous plans, their history, tasks or execution records. Creation only; improvement edit/delete is outside this stage.",
+    "time": "created_at uses UTC ISO 8601 microseconds with Z; display Asia/Seoul.",
+    "migration": "Additive CREATE TABLE/INDEX IF NOT EXISTS for review_improvements and next_plan_links; no backfill, reset or seeding."
+  },
+  "export_format": {
+    "version": "3",
+    "endpoint": "GET /export.json",
+    "response": "Single UTF-8 JSON attachment, application/json; charset=utf-8, no BOM, ensure_ascii=False, no NaN/Infinity. ASCII filename pds-export-<UTC timestamp>.json.",
+    "scope": "Only the authenticated account owns the exported plans and their related rows. Auth tables are never exported.",
+    "read_consistency": "BEGIN read transaction; first SELECT establishes one SQLite snapshot, then capture one UTC time. All tables read before transaction ends. All per-plan reviews derived from those exact rows using build_review and Korean today from that timestamp. No DB writes, table additions or server-side export file storage.",
+    "top_level": {
+      "schema_version": "string 4",
+      "export_format_version": "string 3",
+      "exported_at": "UTC ISO 8601 with microseconds and Z; snapshot reference time",
+      "aggregation_as_of": "Same timestamp as exported_at",
+      "timezone": {
+        "stored_timestamps": "UTC",
+        "display_and_date_boundary": "Asia/Seoul"
+      },
+      "time_units": "Documents integer expected minutes, stored two-decimal actual minutes and exact decimal-string aggregate actual/difference minutes.",
+      "review_rules": "Human-readable scope and seven metric definitions; same logic as review_rules in this contract.",
+      "data": "Object of table-name arrays; DB values and nulls retained, order by first and second listed field.",
+      "plan_reviews": "Array, one per plan including empty plans: plan_id, calculated_at, today_seoul, metrics. No plans => empty array."
+    },
+    "data_fields": {
+      "plans": [
+        "id",
+        "owner_id",
+        "title",
+        "content",
+        "start_date",
+        "end_date",
+        "priority",
+        "success_criteria",
+        "estimated_minutes",
+        "created_at",
+        "updated_at",
+        "version"
+      ],
+      "plan_versions": [
+        "plan_id",
+        "version",
+        "title",
+        "content",
+        "start_date",
+        "end_date",
+        "priority",
+        "success_criteria",
+        "estimated_minutes",
+        "created_at",
+        "updated_at"
+      ],
+      "tasks": [
+        "id",
+        "plan_id",
+        "title",
+        "content",
+        "due_date",
+        "priority",
+        "estimated_minutes",
+        "status",
+        "created_at",
+        "updated_at",
+        "completed_at",
+        "deleted_at",
+        "version"
+      ],
+      "task_tags": [
+        "task_id",
+        "tag"
+      ],
+      "task_state_requests": [
+        "request_id",
+        "task_id",
+        "target_status",
+        "expected_version",
+        "result_version",
+        "changed",
+        "created_at"
+      ],
+      "task_completion_events": [
+        "id",
+        "task_id",
+        "request_id",
+        "task_version",
+        "completed_at"
+      ],
+      "execution_records": [
+        "id",
+        "task_id",
+        "request_id",
+        "started_at",
+        "ended_at",
+        "actual_minutes",
+        "content",
+        "blocked_reason",
+        "created_at"
+      ],
+      "review_improvements": [
+        "id",
+        "plan_id",
+        "content",
+        "created_at"
+      ],
+      "next_plan_links": [
+        "next_plan_id",
+        "previous_plan_id",
+        "improvement_id",
+        "created_at"
+      ],
+      "review_rule_changes": [
+        "id",
+        "plan_id",
+        "before_rule",
+        "after_rule",
+        "reason",
+        "day1",
+        "day2",
+        "created_at",
+        "next_work_started_at",
+        "confirmed_complete"
+      ],
+      "review_rule_evidence": [
+        "change_id",
+        "day",
+        "record_id",
+        "task_id",
+        "started_at",
+        "ended_at",
+        "record_created_at"
+      ]
+    },
+    "metrics_types": {
+      "planned": "integer",
+      "completed": "integer",
+      "overdue": "integer",
+      "blocked": "integer",
+      "estimated": "integer minutes",
+      "actual": "exact decimal string in minutes",
+      "difference": "exact decimal string in minutes"
+    },
+    "numeric_note": "Aggregate Decimal values use strings to avoid precision loss. DB execution actual_minutes remain JSON numbers; IDs are strings and never regenerated. Large integers should be read by arbitrary-precision capable parsers.",
+    "relationships": "IDs and relationships are preserved for the current owner only. owner_id is informational on export and must never choose an import target.",
+    "deleted_aggregation": "Raw deletion marks unchanged. plan_reviews excludes tasks with deleted_at and all their execution records. Current completed status counts, not completion history count.",
+    "security": "Only explicit table/column allowlist and fixed format metadata exported. User-entered text is preserved verbatim; no internal configuration injected."
+  },
+  "authentication": {
+    "password": "Werkzeug scrypt:32768:8:1; random 16-character salt",
+    "session": "32 random bytes, only SHA-256 digest in DB; 8-hour absolute expiry",
+    "csrf": "Session-bound derived token on all unsafe methods",
+    "migration": "Back up populated legacy DB before ALTER; NULL owner is quarantined; no automatic assignment",
+    "ownership": "plans.owner_id references users.id. Related rows inherit ownership through plans."
+  },
+  "daily_review": {
+    "source": "Exact elapsed microseconds from UTC started_at/ended_at; split at Asia/Seoul midnight; exclude soft-deleted tasks. No zero rows for missing dates.",
+    "calculation": "Integer microseconds and Fraction minutes; round only final display, half-up to 1 decimal.",
+    "selection": "Up to 5 recorded dates in chronological order; more than 5 available requires explicit selection.",
+    "averages": "Selected 5-day sum / 5; selected first 2 / 2, last 3 / 3 only when rule timing and evidence match. Current-to-date average uses actual recorded-day count.",
+    "history": "Append-only changes; immutable server timestamp and original evidence times; later evidence edits invalidate comparison; observed third-work start at save cannot be erased by editing records."
+  }
+}

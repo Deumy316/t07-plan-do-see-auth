@@ -8,6 +8,7 @@ import unittest
 from uuid import uuid4
 
 from app import ROOT, create_app
+from auth_support import authenticated_client
 
 
 class ExecutionTests(unittest.TestCase):
@@ -18,7 +19,7 @@ class ExecutionTests(unittest.TestCase):
         self.path = ROOT / 'instance/tests' / f'{uuid4()}.sqlite3'
         self.app = create_app(self.path)
         self.app.config['TESTING'] = True
-        self.client = self.app.test_client()
+        self.client = authenticated_client(self.app)
         response = self.client.post('/plans/new', data=dict(title='[실행 검증 전용] 계획', content='',
             start_date='2026-09-16', end_date='2026-09-30', priority='medium', success_criteria='', estimated_minutes='100'))
         self.plan = response.headers['Location'].split('/')[-1]
@@ -45,7 +46,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(record['actual_minutes'], 30.5)
         self.assertEqual(record['started_at'], '2026-09-16T14:50:00.000000Z')
         self.assertEqual(record['ended_at'], '2026-09-16T15:20:30.000000Z')
-        fresh = create_app(self.path).test_client()
+        fresh = authenticated_client(create_app(self.path))
         html = fresh.get('/executions', query_string={'plan_id': self.plan}).get_data(as_text=True)
         self.assertIn('[검증 전용] 할 일', html)
         self.assertIn('2026-09-17 00:20:30', html)
@@ -81,7 +82,7 @@ class ExecutionTests(unittest.TestCase):
     def test_duplicate_sequential_concurrent_and_conflict(self):
         barrier = threading.Barrier(6)
         def send(_):
-            client = self.app.test_client()
+            client = authenticated_client(self.app)
             barrier.wait(timeout=10)
             return client.post('/executions', data=self.data).status_code
         with ThreadPoolExecutor(max_workers=6) as pool:
@@ -130,7 +131,7 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(updated['content'], '수정한 수행 내용')
         self.assertEqual(updated['blocked_reason'], '수정한 이유')
         self.assertEqual((self.rows('plans'), self.rows('plan_versions'), self.rows('tasks')), before)
-        self.assertIn('수정한 수행 내용'.encode(), create_app(self.path).test_client().get('/executions?plan_id=' + self.plan).data)
+        self.assertIn('수정한 수행 내용'.encode(), authenticated_client(create_app(self.path)).get('/executions?plan_id=' + self.plan).data)
         self.assertEqual(self.client.post('/executions', data=self.data).status_code, 409)
         self.assertEqual(self.rows('execution_records')[0], updated)
 

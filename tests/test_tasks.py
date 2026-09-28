@@ -7,6 +7,7 @@ import unittest
 from uuid import uuid4
 
 from app import ROOT, create_app
+from auth_support import authenticated_client
 
 
 class TaskTests(unittest.TestCase):
@@ -14,7 +15,7 @@ class TaskTests(unittest.TestCase):
         self.path = ROOT / 'instance/tests' / f'{uuid4()}.sqlite3'
         self.app = create_app(self.path)
         self.app.config['TESTING'] = True
-        self.client = self.app.test_client()
+        self.client = authenticated_client(self.app)
         response = self.client.post('/plans/new', data=dict(title='[검증 전용] 계획', content='',
             start_date='2026-09-16', end_date='2026-09-30', priority='medium', success_criteria='', estimated_minutes='0'))
         self.plan_id = response.headers['Location'].split('/')[-1]
@@ -46,7 +47,7 @@ class TaskTests(unittest.TestCase):
     def test_crud_refresh_and_delete_confirmation(self):
         task = self.add()
         self.assertEqual(len(self.rows('task_tags')), 2)
-        fresh = create_app(self.path).test_client()
+        fresh = authenticated_client(create_app(self.path))
         self.assertIn(task['id'].encode(), fresh.get('/tasks', query_string={'plan_id': self.plan_id}).data)
         self.assertEqual(self.rows('tasks')[0], task)
         url = f"/tasks/{task['id']}"
@@ -116,7 +117,7 @@ class TaskTests(unittest.TestCase):
             barrier = threading.Barrier(6)
             key = str(uuid4())
             def worker(_):
-                client = self.app.test_client()
+                client = authenticated_client(self.app)
                 barrier.wait(timeout=10)
                 return self.state(task, 'completed', key if shared_key else str(uuid4()), client).status_code
             with ThreadPoolExecutor(max_workers=6) as pool:

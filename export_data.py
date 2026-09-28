@@ -3,12 +3,12 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from flask import Response
+from flask import Response, g
 from review import build_review
 
 # Explicit data-only allowlist. Never serialize application config or the contract file.
 EXPORT_FIELDS = {
-    'plans': ('id', 'title', 'content', 'start_date', 'end_date', 'priority', 'success_criteria', 'estimated_minutes', 'created_at', 'updated_at', 'version'),
+    'plans': ('id', 'owner_id', 'title', 'content', 'start_date', 'end_date', 'priority', 'success_criteria', 'estimated_minutes', 'created_at', 'updated_at', 'version'),
     'plan_versions': ('plan_id', 'version', 'title', 'content', 'start_date', 'end_date', 'priority', 'success_criteria', 'estimated_minutes', 'created_at', 'updated_at'),
     'tasks': ('id', 'plan_id', 'title', 'content', 'due_date', 'priority', 'estimated_minutes', 'status', 'created_at', 'updated_at', 'completed_at', 'deleted_at', 'version'),
     'task_tags': ('task_id', 'tag'),
@@ -17,6 +17,8 @@ EXPORT_FIELDS = {
     'execution_records': ('id', 'task_id', 'request_id', 'started_at', 'ended_at', 'actual_minutes', 'content', 'blocked_reason', 'created_at'),
     'review_improvements': ('id', 'plan_id', 'content', 'created_at'),
     'next_plan_links': ('next_plan_id', 'previous_plan_id', 'improvement_id', 'created_at'),
+    'review_rule_changes': ('id', 'plan_id', 'before_rule', 'after_rule', 'reason', 'day1', 'day2', 'created_at', 'next_work_started_at', 'confirmed_complete'),
+    'review_rule_evidence': ('change_id', 'day', 'record_id', 'task_id', 'started_at', 'ended_at', 'record_created_at'),
 }
 
 
@@ -29,8 +31,20 @@ def register_export(app, get_db):
             db.execute('BEGIN')
             for table, columns in EXPORT_FIELDS.items():
                 # Identifiers are fixed constants, not request parameters.
+                owned = 'SELECT id FROM plans WHERE owner_id = ?'
+                if table == 'plans':
+                    scope = 'id IN (' + owned + ')'
+                elif table == 'next_plan_links':
+                    scope = 'next_plan_id IN (' + owned + ') AND previous_plan_id IN (' + owned + ')'
+                elif table in ('tasks', 'plan_versions', 'review_improvements', 'review_rule_changes'):
+                    scope = 'plan_id IN (' + owned + ')'
+                elif table == 'review_rule_evidence':
+                    scope = 'change_id IN (SELECT id FROM review_rule_changes WHERE plan_id IN (' + owned + '))'
+                else:
+                    scope = 'task_id IN (SELECT id FROM tasks WHERE plan_id IN (' + owned + '))'
+                args = (g.user['id'],) * (2 if table == 'next_plan_links' else 1)
                 data[table] = [dict(row) for row in db.execute(
-                    'SELECT ' + ', '.join(columns) + ' FROM ' + table + ' ORDER BY 1, 2')]
+                    'SELECT ' + ', '.join(columns) + ' FROM ' + table + ' WHERE ' + scope + ' ORDER BY 1, 2', args)]
                 if table == 'plans':
                     # First SELECT has established the snapshot; one time for all plans.
                     snapshot_time = datetime.now(timezone.utc)
@@ -56,15 +70,15 @@ def register_export(app, get_db):
             reviews.append({'plan_id': plan['id'], 'calculated_at': timestamp,
                             'today_seoul': today.isoformat(), 'metrics': metrics})
         document = {
-            'schema_version': '2',
-            'export_format_version': '1',
+            'schema_version': '4',
+            'export_format_version': '3',
             'exported_at': timestamp,
             'aggregation_as_of': timestamp,
             'timezone': {'stored_timestamps': 'UTC', 'display_and_date_boundary': 'Asia/Seoul'},
             'time_units': {'estimated_minutes': 'integer minutes', 'actual_minutes': 'minutes rounded half-up to 2 decimal places',
                            'review_actual_and_difference': 'exact decimal strings in minutes'},
             'review_rules': {
-                'scope': '선택 여부와 관계없이 모든 계획별로 삭제되지 않은 할 일을 집계합니다.',
+                'scope': '현재 로그인 계정이 소유한 모든 계획별로 삭제되지 않은 할 일을 집계합니다.',
                 'planned': '계획한 할 일 수 (계획 자체의 개수가 아님)',
                 'completed': 'Current status is completed, not historical completion event count.',
                 'overdue': 'status=active and due_date < today_seoul; missing/today/future deadlines excluded.',

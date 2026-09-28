@@ -1,0 +1,27 @@
+{% extends 'base.html' %}
+{% set heading = '회원가입' if mode == 'signup' else ('비밀번호 변경' if mode == 'password' else '로그인') %}
+{% block title %}{{ heading }}{% endblock %}
+{% block body %}
+<section class="card form-card">
+  <h1>{{ heading }}</h1>
+  {% if error %}<div id="form-errors" role="alert"><ul><li>{{ error }}</li></ul></div>{% endif %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if mode != 'password' %}
+    <label>아이디<input name="username" required minlength="3" maxlength="32" autocomplete="username"></label>
+    {% else %}
+    <label>현재 비밀번호<input type="password" name="current_password" required maxlength="128" autocomplete="current-password"></label>
+    {% endif %}
+    <label>{{ '새 비밀번호' if mode == 'password' else '비밀번호' }}
+      <input type="password" name="password" required maxlength="128" {% if mode != 'login' %}minlength="12"{% endif %} autocomplete="{{ 'current-password' if mode == 'login' else 'new-password' }}">
+    </label>
+    {% if mode != 'login' %}<p>비밀번호는 12~128자로 입력하세요.</p>{% endif %}
+    {% if mode == 'signup' %}<p>아이디는 영문 소문자·숫자·밑줄 3~32자를 사용합니다.</p>{% endif %}
+    {% if mode == 'password' %}<p>변경하면 모든 기기의 로그인이 해제됩니다. 새 비밀번호로 다시 로그인하세요.</p>{% endif %}
+    <div class="form-actions"><button type="submit">{{ heading }}</button>
+      <a class="button secondary" href="{{ url_for('login' if mode != 'login' else 'signup') }}">{{ '로그인' if mode != 'login' else '회원가입' }}</a>
+    </div>
+  </form>
+  {% if mode == 'login' %}<p>로그인은 8시간 동안 유지됩니다. 공용 기기에서는 사용 후 로그아웃하세요.</p>{% endif %}
+</section>
+{% endblock %}

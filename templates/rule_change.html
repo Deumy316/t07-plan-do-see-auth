@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block title %}규칙 변경 기록{% endblock %}
+{% block body %}
+<h1>계획 규칙 변경 기록</h1><p>{{ plan.title }}</p>
+<p>이전 이력은 덮어쓰지 않고 새 이력을 추가합니다. 실제 저장 시각은 서버가 기록합니다. 시점 조건에 맞지 않는 이력도 사실대로 보존하며 최종 비교에는 사용할 수 없습니다.</p>
+{% if errors %}<div class="errors" role="alert"><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+{% if days|length < 2 %}<p class="notice">1·2일차의 실제 실행 기록이 필요합니다. 현재는 규칙 변경을 저장할 수 없습니다.</p>{% endif %}
+<form method="post" class="card form-card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="plan_id" value="{{ plan.id }}">
+  <label for="day1">1일차 근거 날짜</label><select id="day1" name="day1" required>{% for day in days %}<option value="{{ day.day }}" {% if values.day1 == day.day %}selected{% endif %}>{{ day.day }}</option>{% endfor %}</select>
+  <label for="day2">2일차 근거 날짜</label><select id="day2" name="day2" required>{% for day in days %}<option value="{{ day.day }}" {% if values.day2 == day.day %}selected{% endif %}>{{ day.day }}</option>{% endfor %}</select>
+  <p class="muted">선택한 두 날짜의 모든 실행 기록과 그 시각을 근거로 연결합니다. 자정을 넘는 기록은 두 날짜에 연결될 수 있습니다.</p>
+  <label for="before_rule">변경 전 규칙</label><textarea id="before_rule" name="before_rule" required maxlength="5000" rows="4">{{ values.before_rule }}</textarea>
+  <label for="after_rule">변경 후 규칙</label><textarea id="after_rule" name="after_rule" required maxlength="5000" rows="4">{{ values.after_rule }}</textarea>
+  <label for="reason">변경 이유</label><textarea id="reason" name="reason" required maxlength="5000" rows="3">{{ values.reason }}</textarea>
+  <label class="date-choice"><input type="checkbox" name="confirmed_complete" value="yes" required> 1·2일차 실행 기록을 모두 마쳤습니다.</label>
+  <p class="muted">나중에 근거 기록을 추가·수정·이동·삭제하면 현재 자료와의 일치 여부를 다시 검사합니다. 이미 시작한 3일차 작업을 과거 시각으로 되돌려 조건을 맞출 수는 없습니다.</p>
+  <div class="form-actions"><a class="button secondary" href="{{ url_for('review_page', plan_id=plan.id) }}#daily-review">돌아보기로</a><button type="submit" {% if days|length < 2 %}disabled{% endif %}>새 변경 이력 저장</button></div>
+</form>
+{% endblock %}

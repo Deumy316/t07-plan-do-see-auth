@@ -26,10 +26,12 @@
 {% endfor %}
 </div>
 {% if plan %}
+{% include 'review_daily.html' %}
 <section id="improvements" class="task-results" aria-labelledby="improvement-title">
 <h2 id="improvement-title">다음 계획에서 고칠 점</h2>
 {% if errors %}<div class="errors" role="alert"><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
-<form method="post" class="card form-card"><input type="hidden" name="plan_id" value="{{ plan.id }}"><label for="improvement_content">개선점</label><textarea id="improvement_content" name="improvement_content" rows="4" required>{{ improvement_text }}</textarea><div class="form-actions"><p class="muted">선택한 계획의 개선점으로 저장합니다.</p><button type="submit">개선점 저장</button></div></form>
+<form method="post" class="card form-card">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="plan_id" value="{{ plan.id }}"><label for="improvement_content">개선점</label><textarea id="improvement_content" name="improvement_content" rows="4" required>{{ improvement_text }}</textarea><div class="form-actions"><p class="muted">선택한 계획의 개선점으로 저장합니다.</p><button type="submit">개선점 저장</button></div></form>
 <div class="section-heading task-results"><h2>저장된 개선점</h2></div>
 {% for improvement in improvements %}<article class="card task-results" data-improvement-id="{{ improvement.id }}"><p class="prose">{{ improvement.content }}</p><p class="muted">{{ improvement.created_at|seoul }} 저장</p><div class="form-actions"><a class="button" href="{{ url_for('new_plan', source_improvement=improvement.id) }}">이 내용으로 다음 계획 만들기</a></div>
 {% if improvement.next_plans %}<h3>연결된 다음 계획</h3><ul class="review-evidence">{% for next_plan in improvement.next_plans %}<li><a class="back" href="{{ url_for('detail', plan_id=next_plan.id) }}">{{ next_plan.title }} →</a></li>{% endfor %}</ul>{% endif %}

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from flask import render_template, request, redirect, url_for
+from flask import g, render_template, request, redirect, url_for
 
 SEOUL = ZoneInfo('Asia/Seoul')
 
@@ -62,7 +62,7 @@ def register_executions(app, get_db):
     @app.route('/executions', methods=['GET', 'POST'])
     def execution_list():
         db = get_db()
-        plans = db.execute('SELECT id, title FROM plans ORDER BY created_at, id').fetchall()
+        plans = db.execute('SELECT id, title FROM plans WHERE owner_id = ? ORDER BY created_at, id', (g.user['id'],)).fetchall()
         source = request.form if request.method == 'POST' else request.args
         plan_id = source.get('plan_id', plans[0]['id'] if plans else '')
         plan = next((p for p in plans if p['id'] == plan_id), None)
@@ -126,7 +126,7 @@ def register_executions(app, get_db):
         if record is None:
             return render_template('error.html', message='실행 기록을 찾을 수 없습니다.'), 404
         tasks = db.execute('''SELECT t.id, t.title, t.status, p.title AS plan_title FROM tasks t
-            JOIN plans p ON p.id = t.plan_id WHERE t.deleted_at IS NULL ORDER BY p.created_at, p.id, t.created_at, t.id''').fetchall()
+            JOIN plans p ON p.id = t.plan_id WHERE t.deleted_at IS NULL AND p.owner_id = ? ORDER BY p.created_at, p.id, t.created_at, t.id''', (g.user['id'],)).fetchall()
         values = dict(record)
         for field in ('started_at', 'ended_at'):
             values[field] = datetime.fromisoformat(record[field].replace('Z', '+00:00')).astimezone(SEOUL).isoformat(timespec='seconds')[:19]

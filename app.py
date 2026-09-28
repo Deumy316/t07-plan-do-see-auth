@@ -20,9 +20,14 @@ def create_app(db_path=None):
     if not path.is_absolute():
         path = ROOT / path
     path.parent.mkdir(parents=True, exist_ok=True)
-    app.config.update(DATABASE=str(path), MAX_CONTENT_LENGTH=1024 * 1024)
+    app.config.update(DATABASE=str(path), MAX_CONTENT_LENGTH=1024 * 1024,
+                      SESSION_COOKIE_SECURE=os.environ.get('PDS_COOKIE_SECURE') == '1')
     with closing(sqlite3.connect(path)) as db:
+        from auth import migrate
+        migrate(db, path)
         db.executescript((ROOT / 'schema.sql').read_text(encoding='utf-8'))
+        from review_experiment import migrate_review
+        migrate_review(db, path)
 
     def get_db():
         if 'db' not in g:
@@ -36,6 +41,9 @@ def create_app(db_path=None):
         db = g.pop('db', None)
         if db is not None:
             db.close()
+
+    from auth import register_auth
+    register_auth(app, get_db)
 
     @app.template_filter('seoul')
     def seoul(value):
@@ -53,7 +61,7 @@ def create_app(db_path=None):
         return response
 
     def find_plan(plan_id):
-        row = get_db().execute('SELECT * FROM plans WHERE id = ?', (plan_id,)).fetchone()
+        row = get_db().execute('SELECT * FROM plans WHERE id = ? AND owner_id = ?', (plan_id, g.user['id'])).fetchone()
         if row is None:
             abort(404)
         return row
@@ -91,7 +99,7 @@ def create_app(db_path=None):
 
     @app.get('/')
     def index():
-        plans = get_db().execute('SELECT * FROM plans ORDER BY updated_at DESC, id').fetchall()
+        plans = get_db().execute('SELECT * FROM plans WHERE owner_id = ? ORDER BY updated_at DESC, id', (g.user['id'],)).fetchall()
         return render_template('index.html', plans=plans)
 
     @app.route('/plans/new', methods=['GET', 'POST'])
@@ -102,7 +110,7 @@ def create_app(db_path=None):
         source_improvement = None
         if source_id:
             source_improvement = get_db().execute('''SELECT i.*, p.title AS plan_title
-                FROM review_improvements i JOIN plans p ON p.id = i.plan_id WHERE i.id = ?''', (source_id,)).fetchone()
+                FROM review_improvements i JOIN plans p ON p.id = i.plan_id WHERE i.id = ? AND p.owner_id = ?''', (source_id, g.user['id'])).fetchone()
             if source_improvement is None:
                 return render_template('error.html', message='연결할 개선점을 찾을 수 없습니다.'), 404
             values['content'] = source_improvement['content']
@@ -116,9 +124,9 @@ def create_app(db_path=None):
                 with db:
                     db.execute('''INSERT INTO plans
                         (id, title, content, start_date, end_date, priority, success_criteria,
-                         estimated_minutes, created_at, updated_at, version)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)''',
-                        (plan_id, *(values[k] for k in FIELDS), now, now))
+                         estimated_minutes, created_at, updated_at, version, owner_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)''',
+                        (plan_id, *(values[k] for k in FIELDS), now, now, g.user['id']))
                     snapshot(db, plan_id)
                     if source_improvement:
                         db.execute('''INSERT INTO next_plan_links(next_plan_id, previous_plan_id, improvement_id, created_at)
@@ -171,6 +179,8 @@ def create_app(db_path=None):
     register_executions(app, get_db)
     from review import register_review
     register_review(app, get_db)
+    from review_experiment import register_experiment
+    register_experiment(app, get_db)
     from export_data import register_export
     register_export(app, get_db)
     return app

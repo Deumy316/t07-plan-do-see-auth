@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from flask import template_rendered
 from app import ROOT, create_app
+from auth_support import authenticated_client
 from review import seoul_today
 
 
@@ -17,7 +18,7 @@ class ReviewTests(unittest.TestCase):
         self.path = ROOT / 'instance/tests' / f'{uuid4()}.sqlite3'
         self.app = create_app(self.path)
         self.app.config['TESTING'] = True
-        self.client = self.app.test_client()
+        self.client = authenticated_client(self.app)
         self.today = date(2026, 9, 17)
 
     def tearDown(self):

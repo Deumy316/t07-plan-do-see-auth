@@ -8,6 +8,7 @@
 {% if plan %}
 <div class="section-heading task-results"><h2>기록 추가</h2><p class="muted">한국 시간(Asia/Seoul)으로 입력하세요. 완료된 할 일에도 기록할 수 있습니다.</p></div>
 {% if tasks %}<form method="post" class="card form-card" data-execution-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <input type="hidden" name="plan_id" value="{{ plan.id }}"><input type="hidden" name="request_id" value="{{ request_id }}">
 <div class="field"><label for="task_id">할 일 <span class="required">필수</span></label><select name="task_id" id="task_id" required><option value="">할 일을 선택하세요</option>{% for task in tasks %}<option value="{{ task.id }}" {% if values.task_id == task.id %}selected{% endif %}>{{ task.title }} · {{ task_statuses[task.status] }}</option>{% endfor %}</select></div>
 <div class="form-grid task-filter-grid"><div><label for="started_at">시작 시각 (한국 시간)</label><input type="datetime-local" step="1" name="started_at" id="started_at" value="{{ values.started_at }}" required></div><div><label for="ended_at">종료 시각 (한국 시간)</label><input type="datetime-local" step="1" name="ended_at" id="ended_at" value="{{ values.ended_at }}" required></div></div>

@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS plans (
     id TEXT PRIMARY KEY NOT NULL,
+    owner_id TEXT REFERENCES users(id),
     title TEXT NOT NULL CHECK(length(trim(title)) > 0),
     content TEXT NOT NULL,
     start_date TEXT NOT NULL,

@@ -6,6 +6,7 @@
 <div class="errors" id="form-errors" role="alert" tabindex="-1" {% if not errors %}hidden{% endif %}><strong>저장 상태를 확인해 주세요.</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>
 <div class="editor-layout">
 <form method="post" class="card form-card" data-plan-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 {% if source_improvement %}<input type="hidden" name="source_improvement" value="{{ source_improvement.id }}"><aside class="notice"><p>이전 계획: <a href="{{ url_for('review_page', plan_id=source_improvement.plan_id) }}#improvements">{{ source_improvement.plan_title }}</a><br>저장된 개선점을 내용에 넣었습니다. 제목·기간·우선순위·성공 기준·예상 시간을 확인한 뒤 저장해 주세요. 저장할 때 다음 계획 연결이 생성됩니다.</p></aside>{% endif %}
 {% if plan %}<input type="hidden" name="version" value="{{ request.form.get('version', plan.version) }}">{% endif %}
 <fieldset><legend>계획의 내용</legend><p class="field-help section-help">제목은 필수입니다. 내용은 자유롭게 적어 주세요.</p>

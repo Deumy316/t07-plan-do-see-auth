@@ -4,6 +4,7 @@ import unittest
 from uuid import uuid4
 
 from app import ROOT, create_app
+from auth_support import authenticated_client
 
 
 class ImprovementTests(unittest.TestCase):
@@ -11,7 +12,7 @@ class ImprovementTests(unittest.TestCase):
         self.path = ROOT / 'instance/tests' / f'{uuid4()}.sqlite3'
         self.app = create_app(self.path)
         self.app.config['TESTING'] = True
-        self.client = self.app.test_client()
+        self.client = authenticated_client(self.app)
         self.plan_data = dict(title='[검증 전용] 이전 계획', content='원래 내용', start_date='2026-09-01',
             end_date='2026-09-30', priority='high', success_criteria='원래 기준', estimated_minutes='60')
         response = self.client.post('/plans/new', data=self.plan_data)
@@ -35,7 +36,7 @@ class ImprovementTests(unittest.TestCase):
         before = self.rows('plans'), self.rows('plan_versions')
         improvement = self.save_improvement()
         self.assertEqual(improvement['plan_id'], self.previous)
-        fresh = create_app(self.path).test_client()
+        fresh = authenticated_client(create_app(self.path))
         page = fresh.get('/review', query_string={'plan_id': self.previous}).get_data(as_text=True)
         self.assertIn('작은 단위로 나누기', page)
         self.assertIn('&lt;script&gt;', page)
@@ -60,7 +61,7 @@ class ImprovementTests(unittest.TestCase):
         link = self.rows('next_plan_links')[0]
         self.assertEqual((link['previous_plan_id'], link['improvement_id'], link['next_plan_id']),
                          (self.previous, improvement['id'], next_id))
-        fresh = create_app(self.path).test_client()
+        fresh = authenticated_client(create_app(self.path))
         page = fresh.get('/review', query_string={'plan_id': self.previous}).get_data(as_text=True)
         self.assertIn('href="/plans/' + next_id + '"', page)
         self.assertIn('[검증 전용] 다음 계획', page)

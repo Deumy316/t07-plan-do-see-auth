@@ -203,3 +203,5 @@ footer { margin-top: 40px; padding: 22px 0 4px; border-top: 1px solid var(--line
 .review-evidence > li { padding: 18px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
 .review-evidence h3 { margin-bottom: 8px; }
 .review-evidence p + p { margin-top: 6px; }
+.date-choice { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
+.date-choice input[type="checkbox"] { width: auto; flex: 0 0 auto; }

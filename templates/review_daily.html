@@ -1,0 +1,81 @@
+<section id="daily-review" class="task-results" aria-labelledby="daily-title">
+  <h2 id="daily-title">하루 실제 작업 시간 · 5일 비교</h2>
+  <p class="muted">선택한 계획의 기록을 한국 시간 자정에서 나눕니다. 시작·종료 시각의 정밀도를 유지해 계산하고, 최종 표시만 소수점 첫째 자리로 반올림합니다. 기록 없는 날은 만들지 않습니다.</p>
+  <p class="muted">위 전체 기간 집계는 기존에 저장된 분 값을 사용합니다. 이 날짜별 분석은 원래 시작·종료 시각을 사용하므로 기록별 반올림 때문에 끝자리가 다를 수 있습니다.</p>
+  <div class="card">
+    <h3 data-recorded-days="{{ experiment.recorded_days }}">실제 기록이 있는 날짜: {{ experiment.recorded_days }}일</h3>
+    <p class="review-value" data-comparison-status>{% if experiment.complete %}5/5일 기록, 변경 전후 비교 조건 충족{% else %}{{ experiment.selected|length }}/5일 기록, 비교 준비 중{% endif %}</p>
+    {% if experiment.current_average is not none %}
+    <p>현재까지 전체 {{ experiment.recorded_days }}일 합계 <strong data-current-total>{{ experiment.current_total|minute1 }}</strong>분 · 기록일 평균 <strong data-current-average>{{ experiment.current_average|minute1 }}</strong>분</p>
+    <p class="muted">현재까지의 값이며, 최종 5일 결과가 아닙니다. 평균의 분모는 실제 기록이 있는 {{ experiment.recorded_days }}일입니다.</p>
+    {% else %}<p>아직 실행 기록이 없습니다.</p>{% endif %}
+  </div>
+
+  <h3 class="task-results">날짜별 합계와 근거</h3>
+  {% for day in experiment.days %}
+  <details class="card history" data-daily-date="{{ day.day }}">
+    <summary>{{ day.day }} · <strong data-daily-minutes>{{ day.minutes|minute1 }}분</strong> · 근거 {{ day.evidence|length }}개</summary>
+    <div class="history-content"><ul class="review-evidence">
+      {% for item in day.evidence %}<li>
+        <a href="{{ url_for('execution_edit', record_id=item.record_id) }}">근거 실행 기록 보기</a>
+        <p>{{ item.segment_start|seoul }} — {{ item.segment_end|seoul }} (한국 시간)</p>
+        <p>이 날짜에 포함된 시간 {{ item.minutes|minute1 }}분</p>
+        <p class="id">실행 기록 ID: {{ item.record_id }}</p>
+      </li>{% endfor %}
+    </ul><p class="muted">표시된 한 자리 값을 다시 더하지 않고 원래 구간 시간으로 합산했습니다.</p></div>
+  </details>
+  {% endfor %}
+
+  {% if experiment.recorded_days > 5 %}
+  <form method="get" class="card form-card task-results">
+    <input type="hidden" name="plan_id" value="{{ plan.id }}">
+    {% if experiment.chosen %}<input type="hidden" name="rule_change_id" value="{{ experiment.chosen.id }}">{% endif %}
+    <fieldset><legend>비교할 날짜 5개를 직접 선택하세요</legend>
+      {% for day in experiment.days %}<label class="date-choice"><input type="checkbox" name="dates" value="{{ day.day }}" {% if day.day in experiment.selected_dates %}checked{% endif %}> {{ day.day }} · {{ day.minutes|minute1 }}분</label>{% endfor %}
+    </fieldset><button type="submit">비교 날짜 적용</button>
+  </form>
+  {% endif %}
+  {% if experiment.selection_error %}<p class="errors" role="alert">{{ experiment.selection_error }}</p>{% endif %}
+  <p>비교에 포함된 날짜: {% for day in experiment.selected %}{{ loop.index }}일차 {{ day.day }}{% if not loop.last %}, {% endif %}{% else %}선택되지 않음{% endfor %}</p>
+  {% if experiment.five_total is not none %}
+  <div class="card" id="five-day-results"><h3>선택한 5일의 실제 기록 결과</h3>
+    <p>합계 <strong data-five-total>{{ experiment.five_total|minute1 }}</strong>분 · 하루 평균 <strong data-five-average>{{ experiment.five_average|minute1 }}</strong>분 (분모: 5일)</p>
+    {% if not experiment.complete %}<p>5일 자료는 갖춰졌지만 규칙 변경 전후의 최종 비교는 아직 준비 중입니다.</p>{% endif %}
+  </div>
+  {% endif %}
+
+  <h3 class="task-results">계획 규칙 변경 이력</h3>
+  <p>2일차 기록을 모두 마친 뒤, 3일차 작업을 시작하기 전에 사용자가 직접 저장하세요. 서버가 저장 시각을 기록하며 과거 시각으로 입력할 수 없습니다.</p>
+  <a class="button" href="{{ url_for('rule_change_new', plan_id=plan.id) }}">규칙 변경 기록하기</a>
+  {% if experiment.recorded_days < 2 %}<p class="muted">아직 근거 날짜가 2일 미만이므로 변경 기록을 저장할 수 없습니다.</p>{% endif %}
+  {% for change in experiment.history %}
+  <details class="card history task-results" {% if experiment.chosen and experiment.chosen.id == change.id %}open{% endif %}>
+    <summary>{{ change.created_at|seoul }} 저장 (한국 시간){% if experiment.chosen and experiment.chosen.id == change.id %} · 현재 비교에 사용{% endif %}</summary>
+    <div class="history-content">
+      <h4>변경 전 규칙</h4><p class="prose">{{ change.before_rule }}</p>
+      <h4>변경 후 규칙</h4><p class="prose">{{ change.after_rule }}</p>
+      <h4>변경 이유</h4><p class="prose">{{ change.reason }}</p>
+      <p>근거: 1일차 {{ change.day1 }}, 2일차 {{ change.day2 }} · 사용자가 기록 완료를 확인하고 저장</p>
+      {% for reason in change.assessment.reasons %}<p class="errors">{{ reason }}</p>{% endfor %}
+      {% if change.assessment.pending %}<p>{{ change.assessment.pending }}</p>{% endif %}
+      {% if change.assessment.eligible and change.assessment.third_day_known %}<p>현재 근거 기준으로 2일차 기록 이후·3일차 작업 이전의 저장 시점이 확인됩니다.</p>{% endif %}
+      <details><summary>저장 당시 연결한 실행 기록과 시각</summary><ul class="review-evidence">
+        {% for item in change.evidence %}<li>{{ item.day }} · <a href="{{ url_for('execution_edit', record_id=item.record_id) }}">근거 기록</a><p>{{ item.started_at|seoul }} — {{ item.ended_at|seoul }} (한국 시간)</p><p class="id">{{ item.record_id }}</p></li>{% endfor %}
+      </ul></details>
+      <a href="{{ url_for('review_page', plan_id=plan.id, rule_change_id=change.id, dates=experiment.selected_dates) }}#daily-review">이 이력으로 비교</a>
+    </div>
+  </details>
+  {% else %}<p class="muted">저장된 규칙 변경 기록이 없습니다. 자동으로 등록하지 않습니다.</p>{% endfor %}
+
+  {% if experiment.complete %}
+  <div id="rule-comparison" class="cards task-results">
+    {% for label, group in [('변경 전 2일', experiment.before), ('변경 후 3일', experiment.after)] %}
+    <section class="card"><h3>{{ label }}</h3><p>지표: 하루 실제 작업 시간 · 단위: 분</p>
+      <ul>{% for day in group.days %}<li>{{ day.day }}: {{ day.minutes|minute1 }}분</li>{% endfor %}</ul>
+      <p>합계 {{ group.total|minute1 }}분</p><p class="review-value">하루 평균 {{ group.average|minute1 }}분</p>
+      <p class="muted">분모: {{ group.days|length }}일 · 반올림 전 원래 시간으로 계산</p>
+    </section>{% endfor %}
+  </div>
+  <p>시간이 줄었다는 사실만으로 생산성이 좋아졌다고 단정할 수 없습니다. 작업량·난이도·결과의 품질도 함께 살펴보세요.</p>
+  {% else %}<div class="notice task-results"><strong>최종 비교 준비 중</strong><ul>{% for reason in experiment.reasons %}<li>{{ reason }}</li>{% endfor %}</ul></div>{% endif %}
+</section>

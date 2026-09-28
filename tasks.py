@@ -2,7 +2,7 @@ import re
 from datetime import date, datetime, timezone
 from uuid import UUID, uuid4
 
-from flask import redirect, render_template, request, url_for
+from flask import g, redirect, render_template, request, url_for
 
 SORTS = {'due': '마감일순', 'priority': '우선순위순', 'newest': '최신 생성순'}
 ORDERS = {
@@ -70,7 +70,7 @@ def register_tasks(app, get_db):
     @app.get('/tasks')
     def task_list():
         db = get_db()
-        plans = db.execute('SELECT id, title FROM plans ORDER BY created_at, id').fetchall()
+        plans = db.execute('SELECT id, title FROM plans WHERE owner_id = ? ORDER BY created_at, id', (g.user['id'],)).fetchall()
         plan_id = request.args.get('plan_id', plans[0]['id'] if plans else '')
         plan = next((p for p in plans if p['id'] == plan_id), None)
         if plan_id and plan is None:
@@ -101,7 +101,7 @@ def register_tasks(app, get_db):
     @app.route('/tasks/new', methods=['GET', 'POST'])
     def task_new():
         db = get_db()
-        plans = db.execute('SELECT id, title FROM plans ORDER BY created_at, id').fetchall()
+        plans = db.execute('SELECT id, title FROM plans WHERE owner_id = ? ORDER BY created_at, id', (g.user['id'],)).fetchall()
         values = dict(plan_id=request.args.get('plan_id', ''), title='', content='', due_date='', priority='medium', estimated_minutes=0, tags='')
         errors = []
         if request.method == 'POST':

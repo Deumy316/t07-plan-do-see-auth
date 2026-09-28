@@ -3,7 +3,8 @@ from uuid import uuid4
 from decimal import Decimal, localcontext
 from zoneinfo import ZoneInfo
 
-from flask import render_template, request, redirect, url_for
+from flask import g, render_template, request, redirect, url_for
+from review_experiment import build_experiment, load_changes
 
 
 def seoul_today():
@@ -33,7 +34,7 @@ def build_review(tasks, records, today):
 def register_review(app, get_db):
     @app.context_processor
     def review_context():
-        return {'review_menu': request.endpoint == 'review_page'}
+        return {'review_menu': request.endpoint in ('review_page', 'rule_change_new')}
 
     @app.template_filter('review_number')
     def review_number(value):
@@ -49,7 +50,7 @@ def register_review(app, get_db):
         # All evidence and totals come from a single consistent read snapshot.
         with db:
             db.execute('BEGIN IMMEDIATE' if request.method == 'POST' else 'BEGIN')
-            plans = db.execute('SELECT id, title FROM plans ORDER BY created_at, id').fetchall()
+            plans = db.execute('SELECT id, title FROM plans WHERE owner_id = ? ORDER BY created_at, id', (g.user['id'],)).fetchall()
             plan_id = (request.form.get('plan_id', '') if request.method == 'POST'
                        else request.args.get('plan_id', plans[0]['id'] if plans else ''))
             plan = next((p for p in plans if p['id'] == plan_id), None)
@@ -74,8 +75,11 @@ def register_review(app, get_db):
                 WHERE plan_id = ? ORDER BY created_at DESC, id''', (plan_id,))]
             for improvement in improvements:
                 improvement['next_plans'] = db.execute('''SELECT p.id, p.title FROM next_plan_links l
-                    JOIN plans p ON p.id = l.next_plan_id WHERE l.improvement_id = ? ORDER BY l.created_at, p.id''',
-                    (improvement['id'],)).fetchall()
+                    JOIN plans p ON p.id = l.next_plan_id WHERE l.improvement_id = ? AND p.owner_id = ? ORDER BY l.created_at, p.id''',
+                    (improvement['id'], g.user['id'])).fetchall()
+            changes = load_changes(db, plan_id)
         report = build_review(tasks, records, today)
+        experiment = build_experiment(records, changes, request.args.getlist('dates'), request.args.get('rule_change_id'))
         return render_template('review.html', plans=plans, plan=plan, today=today.isoformat(), report=report,
-                               improvements=improvements, improvement_text=improvement_text, errors=errors), 400 if errors else 200
+                               experiment=experiment, improvements=improvements, improvement_text=improvement_text,
+                               errors=errors), 400 if errors or experiment['selection_error'] else 200

@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from flask import template_rendered
 from app import ROOT, create_app
+from auth_support import authenticated_client
 from export_data import EXPORT_FIELDS
 
 
@@ -21,7 +22,7 @@ class ExportTests(unittest.TestCase):
         self.path = ROOT / 'instance/tests' / f'{uuid4()}.sqlite3'
         self.app = create_app(self.path)
         self.app.config.update(TESTING=True, SECRET_KEY='secret-config-sentinel')
-        self.client = self.app.test_client()
+        self.client = authenticated_client(self.app)
         self.plan_data = dict(title='[내보내기 검증] 한글 계획', content='한글 내용', start_date='2026-09-01',
             end_date='2026-09-30', priority='high', success_criteria='확인', estimated_minutes='999')
 
@@ -117,8 +118,8 @@ class ExportTests(unittest.TestCase):
     def test_metadata_allowlist_no_internal_settings_and_button(self):
         self.plan()
         response, exported = self.export()
-        self.assertEqual(exported['schema_version'], '2')
-        self.assertEqual(exported['export_format_version'], '1')
+        self.assertEqual(exported['schema_version'], '4')
+        self.assertEqual(exported['export_format_version'], '3')
         self.assertEqual(exported['exported_at'], exported['aggregation_as_of'])
         self.assertEqual(exported['plan_reviews'][0]['calculated_at'], exported['aggregation_as_of'])
         self.assertEqual(exported['timezone']['display_and_date_boundary'], 'Asia/Seoul')
@@ -131,7 +132,7 @@ class ExportTests(unittest.TestCase):
             self.assertNotIn(forbidden, text)
         self.assertIn('전체 자료 내보내기'.encode(), self.client.get('/').data)
         self.assertIn(b'href="/export.json"', self.client.get('/review').data)
-        contract = json.loads((ROOT / 'contracts/pds-schema-v2.json').read_text(encoding='utf-8'))
+        contract = json.loads((ROOT / 'contracts/pds-schema-v4.json').read_text(encoding='utf-8'))
         self.assertEqual(contract['export_format']['data_fields'], {t: list(c) for t, c in EXPORT_FIELDS.items()})
 
 

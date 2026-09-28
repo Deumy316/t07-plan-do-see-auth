@@ -6,6 +6,7 @@
 {% if not plans %}<div class="card empty"><h2>먼저 계획을 만들어 주세요</h2><a class="button" href="{{ url_for('new_plan') }}">계획 만들기</a></div>{% else %}
 {% if errors %}<div class="errors" role="alert"><strong>저장하지 못했습니다.</strong><ul>{% for error in errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
 <form method="post" class="card form-card">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 {% if task %}<input type="hidden" name="version" value="{{ request.form.get('version', task.version) }}">{% endif %}
 <fieldset><legend>할 일의 내용</legend>
 <div class="field"><label for="plan_id">연결된 계획 <span class="required">필수</span></label><select name="plan_id" id="plan_id" required><option value="">계획을 선택하세요</option>{% for p in plans %}<option value="{{ p.id }}" {% if values.plan_id == p.id %}selected{% endif %}>{{ p.title }}</option>{% endfor %}</select></div>
